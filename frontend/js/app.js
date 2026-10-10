@@ -2058,7 +2058,7 @@ const Audit = {
 
           <div class="audit-grid">
             <div class="audit-tile">
-              <div class="audit-tile-lbl">Hit rate (n = X)</div>
+              <div class="audit-tile-lbl">Hit rate</div>
               <div class="audit-tile-val mono ${overallAcc !== null && overallAcc >= 60 ? 'val-pos' : (overallAcc !== null && overallAcc < 50 ? 'val-neg' : 'val-neu')}">
                 ${overallAcc !== null ? `${overallAcc.toFixed(1)}% (n = ${resolvedAll.length})` : 'Pending'}
               </div>
