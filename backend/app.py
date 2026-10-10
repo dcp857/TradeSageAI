@@ -141,6 +141,7 @@ def create_app(configOverrides=None):
         _appSecretKey = "dev-only-change-in-production"
     app.config["SECRET_KEY"] = _appSecretKey
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
     if configOverrides:
         app.config.update(configOverrides)
 

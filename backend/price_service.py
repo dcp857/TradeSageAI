@@ -67,7 +67,7 @@ def getHistoricalPrices(assetSymbol, assetType, lookbackDays=LOOKBACK_DAYS_DEFAU
     if isDefault:
         _HISTORICAL_PRICE_CACHE[(sym, typ, lookbackDays)] = (time.time(), priceDf)
 
-    return priceDf
+    return priceDf.copy()
 
 
 # --- default fetchers (real network clients; not used in unit tests) ---

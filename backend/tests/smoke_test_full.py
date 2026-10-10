@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from flask import Flask
 import conftest
 from models import db, User, Holding
-import auth_service, portfolio_service, sentiment_service
+import auth_service, portfolio_service, sentiment_service, price_service
 from feature_pipeline import buildFeatureFrame, labelDirection
 from signal_engine import trainRandomForestBaseline
 from lstm_model import buildSequenceWindows, trainLstm, WINDOW_SIZE_DEFAULT
@@ -47,6 +47,25 @@ with app.app_context():
     # cache hit path
     score2 = sentiment_service.getSentimentForAsset("AAPL", "stock", date(2025, 1, 5), db.session, headlineFetcher=fakeHeadlines)
     assert score == score2
+
+    # --- price service cache immutability check ---
+    def fakeStockHistory(sym, lookback):
+        d = pd.bdate_range("2025-01-01", periods=10)
+        return pd.DataFrame({"close": [100.0]*10, "volume": [1000]*10}, index=d)
+
+    origStockFetcher = price_service._defaultStockHistoryFetcher
+    try:
+        price_service._defaultStockHistoryFetcher = fakeStockHistory
+        df1 = price_service.getHistoricalPrices("IMMUTABLE_TEST", "stock")
+        df1["close"] = 999.9  # mutate returned dataframe
+        df1["mutated_column"] = True
+
+        df2 = price_service.getHistoricalPrices("IMMUTABLE_TEST", "stock")
+        assert df2["close"].iloc[0] == 100.0, "Cache was mutated by downstream modification!"
+        assert "mutated_column" not in df2.columns, "Mutated column leaked into cached DataFrame!"
+        print("price_service cache immutability verified OK")
+    finally:
+        price_service._defaultStockHistoryFetcher = origStockFetcher
 
     # --- feature pipeline + labels on synthetic price history ---
     np.random.seed(1)
