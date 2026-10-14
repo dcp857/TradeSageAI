@@ -81,72 +81,101 @@ def _extractTitle(item):
     return str(item)
 
 
+_DATA_SOURCE_STATUS = {
+    "newsapi": "ok" if os.environ.get("NEWSAPI_KEY") else "degraded: missing_key",
+    "reddit": "ok" if (os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")) else "degraded: missing_key",
+}
+
+
+def getDataSourceStatus(sourceName):
+    """Returns the current operational status of a sentiment data source ('newsapi' or 'reddit')."""
+    if sourceName == "newsapi" and not os.environ.get("NEWSAPI_KEY"):
+        return "degraded: missing_key"
+    if sourceName == "reddit" and not (os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")):
+        return "degraded: missing_key"
+    return _DATA_SOURCE_STATUS.get(sourceName, "ok")
+
+
+def setDataSourceStatus(sourceName, status):
+    """Sets the operational status of a sentiment data source."""
+    _DATA_SOURCE_STATUS[sourceName] = status
+
+
 def _defaultHeadlineFetcher(assetSymbol, sourceDate):
-    """Fetches real headlines via NewsAPI if configured, or falls back to
-    yfinance news stream for the symbol. Returns empty list on network failure."""
+    """Fetches real headlines via NewsAPI for stock assets.
+    Reads NEWSAPI_KEY from environment.
+    On missing key, timeout, HTTP error, or rate limit, returns [] and flags
+    the data source as degraded (SRS NFR-2). Never raises."""
     newsApiKey = os.environ.get("NEWSAPI_KEY")
-    if newsApiKey:
-        try:
-            resp = requests.get(
-                "https://newsapi.org/v2/everything",
-                params={"q": assetSymbol, "pageSize": 10, "sortBy": "relevance", "apiKey": newsApiKey},
-                timeout=4,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                headlines = [a["title"] for a in data.get("articles", []) if a.get("title")]
-                if headlines:
-                    return headlines
-        except Exception:
-            pass
+    if not newsApiKey:
+        setDataSourceStatus("newsapi", "degraded: missing_key")
+        return []
 
-    # Zero-config live news fallback via yfinance
     try:
-        ticker = yf.Ticker(assetSymbol)
-        newsItems = ticker.news if hasattr(ticker, "news") and ticker.news else []
-        headlines = [_extractTitle(item) for item in newsItems[:10]]
-        headlines = [h.strip() for h in headlines if h and h.strip()]
-        if headlines:
+        resp = requests.get(
+            "https://newsapi.org/v2/everything",
+            params={
+                "q": assetSymbol,
+                "pageSize": 10,
+                "sortBy": "relevance",
+                "apiKey": newsApiKey,
+            },
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            articles = data.get("articles", [])
+            headlines = [a["title"] for a in articles if a.get("title")]
+            setDataSourceStatus("newsapi", "ok")
             return headlines
-    except Exception:
-        pass
-
-    return []
+        elif resp.status_code == 429:
+            setDataSourceStatus("newsapi", "degraded: rate_limit")
+            return []
+        else:
+            setDataSourceStatus("newsapi", f"degraded: http_{resp.status_code}")
+            return []
+    except requests.exceptions.Timeout:
+        setDataSourceStatus("newsapi", "degraded: timeout")
+        return []
+    except Exception as exc:
+        setDataSourceStatus("newsapi", f"degraded: {type(exc).__name__}")
+        return []
 
 
 def _defaultPostFetcher(assetSymbol, sourceDate):
-    """Fetches crypto posts via Reddit/PRAW if configured, or falls back to
-    crypto news via yfinance or Reddit public JSON. Returns empty list on failure."""
+    """Fetches crypto posts via Reddit/PRAW for crypto assets.
+    Reads REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT from environment.
+    On missing key, timeout, HTTP error, or rate limit, returns [] and flags
+    the data source as degraded (SRS NFR-2). Never raises."""
     clientId = os.environ.get("REDDIT_CLIENT_ID")
     clientSecret = os.environ.get("REDDIT_CLIENT_SECRET")
-    if clientId and clientSecret:
-        try:
-            import praw
-            reddit = praw.Reddit(
-                client_id=clientId,
-                client_secret=clientSecret,
-                user_agent=os.environ.get("REDDIT_USER_AGENT", "tradesage-ai/1.0"),
-            )
-            subreddit = reddit.subreddit("CryptoCurrency")
-            posts = [s.title for s in subreddit.search(assetSymbol, limit=10, time_filter="week")]
-            if posts:
-                return posts
-        except Exception:
-            pass
+    userAgent = os.environ.get("REDDIT_USER_AGENT", "tradesage-ai/1.0")
 
-    # Fallback to yfinance ticker news (e.g. BTC-USD)
+    if not (clientId and clientSecret):
+        setDataSourceStatus("reddit", "degraded: missing_key")
+        return []
+
     try:
-        yfSymbol = assetSymbol if assetSymbol.endswith("-USD") else f"{assetSymbol}-USD"
-        ticker = yf.Ticker(yfSymbol)
-        newsItems = ticker.news if hasattr(ticker, "news") and ticker.news else []
-        headlines = [_extractTitle(item) for item in newsItems[:10]]
-        headlines = [h.strip() for h in headlines if h and h.strip()]
-        if headlines:
-            return headlines
-    except Exception:
-        pass
-
-    return []
+        import praw
+        reddit = praw.Reddit(
+            client_id=clientId,
+            client_secret=clientSecret,
+            user_agent=userAgent,
+            requestor_kwargs={"timeout": 8},
+        )
+        subreddit = reddit.subreddit("CryptoCurrency")
+        posts = [s.title for s in subreddit.search(assetSymbol, limit=10, time_filter="week")]
+        setDataSourceStatus("reddit", "ok")
+        return posts
+    except Exception as exc:
+        errMsg = str(exc).lower()
+        if "429" in errMsg or "ratelimit" in errMsg:
+            setDataSourceStatus("reddit", "degraded: rate_limit")
+        elif "timeout" in errMsg:
+            setDataSourceStatus("reddit", "degraded: timeout")
+        else:
+            setDataSourceStatus("reddit", f"degraded: {type(exc).__name__}")
+        return []
 
 
 def getSentimentForAsset(assetSymbol, assetType, sourceDate, dbSession,
@@ -162,10 +191,15 @@ def getSentimentForAsset(assetSymbol, assetType, sourceDate, dbSession,
     headlineFetcher = headlineFetcher or _defaultHeadlineFetcher
     postFetcher = postFetcher or _defaultPostFetcher
 
-    if assetType == "crypto":
-        texts = postFetcher(assetSymbol, sourceDate)
-    else:
-        texts = headlineFetcher(assetSymbol, sourceDate)
+    src = "reddit" if assetType == "crypto" else "newsapi"
+    try:
+        if assetType == "crypto":
+            texts = postFetcher(assetSymbol, sourceDate)
+        else:
+            texts = headlineFetcher(assetSymbol, sourceDate)
+    except Exception as exc:
+        setDataSourceStatus(src, f"degraded: {type(exc).__name__}")
+        texts = []
 
     if not texts:
         sentimentScore = 0.0
@@ -173,7 +207,8 @@ def getSentimentForAsset(assetSymbol, assetType, sourceDate, dbSession,
     else:
         analyzer = _buildAnalyzer()
         scores = [scoreText(t, analyzer) for t in texts]
-        sentimentScore = sum(scores) / len(scores)
+        rawScore = sum(scores) / len(scores) if scores else 0.0
+        sentimentScore = max(-1.0, min(1.0, float(rawScore)))
         sampleSize = len(scores)
 
     newCacheRow = SentimentCache(

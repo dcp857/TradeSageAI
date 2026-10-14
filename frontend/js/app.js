@@ -2373,9 +2373,11 @@ const Admin = {
                 <span style="font-weight: 700; color: var(--text-main); font-size: 13px;">${h.assetSymbol}</span>
                 <span class="tag ${h.assetType === 'crypto' ? 'tag-crypto' : 'tag-stock'}" style="font-size: 10px; padding: 1px 5px;">${h.assetType}</span>
               </div>
-              <div style="font-size: 11px; color: var(--text-dim); margin-top: 1px;">Feed Source: <strong style="color: var(--text-muted);">${providerLabel}</strong></div>
+              <div style="font-size: 11px; color: var(--text-dim); margin-top: 1px;">
+                Feed: <strong style="color: var(--text-muted);">${providerLabel}</strong>
+                ${h.sentimentSource ? ` | Sentiment: <strong style="color: var(--text-muted);">${h.sentimentSource === "newsapi" ? "NewsAPI" : "Reddit/PRAW"}</strong> (${h.sentimentStatus === "ok" ? '<span style="color: #00d68f; font-weight: 600;">ACTIVE</span>' : `<span style="color: #ffaa00; font-weight: 600;">${h.sentimentStatus}</span>`})` : ''}
+              </div>
             </div>
-          </div>
           <div style="text-align: right;">
             <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; letter-spacing: 0.3px;">
               ${statusLabel}

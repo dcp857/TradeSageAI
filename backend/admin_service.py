@@ -72,6 +72,9 @@ def setRetrainInterval(dbSession, intervalDays):
     return config
 
 
+import sentiment_service
+
+
 def checkDataSourceHealth(dbSession, priceFetcher=None):
     """Attempts a live historical-price fetch for every tracked asset.
     priceFetcher injectable for testing (no network access needed), same
@@ -84,11 +87,17 @@ def checkDataSourceHealth(dbSession, priceFetcher=None):
             status = "ok" if len(priceDf) > 0 else "empty_response"
         except Exception as fetchError:
             status = f"error: {fetchError}"
+
+        sentimentSource = "newsapi" if asset.assetType == "stock" else "reddit"
+        sentimentStatus = sentiment_service.getDataSourceStatus(sentimentSource)
+
         results.append({
             "assetSymbol": asset.assetSymbol,
             "assetType": asset.assetType,
             "source": "yfinance" if asset.assetType == "stock" else "binance",
             "status": status,
+            "sentimentSource": sentimentSource,
+            "sentimentStatus": sentimentStatus,
             "checkedAt": datetime.utcnow().isoformat(),
         })
     return results
