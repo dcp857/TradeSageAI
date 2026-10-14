@@ -89,19 +89,46 @@ def _defaultCryptoHistoryFetcher(assetSymbol, lookbackDays):
     sym = assetSymbol.upper()
     if not sym.endswith("USDT"):
         sym = f"{sym}USDT"
-    response = requests.get(
-        "https://api.binance.com/api/v3/klines",
-        params={
+
+    targetBars = max(lookbackDays or 0, 1500)
+    allKlines = []
+    endTime = None
+
+    while len(allKlines) < targetBars:
+        limit = min(1000, targetBars - len(allKlines) + 50)
+        params = {
             "symbol": sym,
             "interval": "1d",
-            "limit": lookbackDays,
-        },
-        timeout=8,
-    )
-    response.raise_for_status()
-    klines = response.json()
+            "limit": limit,
+        }
+        if endTime is not None:
+            params["endTime"] = endTime
+
+        response = requests.get(
+            "https://api.binance.com/api/v3/klines",
+            params=params,
+            timeout=8,
+        )
+        response.raise_for_status()
+        batch = response.json()
+        if not batch:
+            break
+        allKlines.extend(batch)
+        earliestOpen = min(row[0] for row in batch)
+        endTime = earliestOpen - 1
+
+    # Deduplicate overlapping bars and sort ascending by open time
+    seenTimes = set()
+    uniqueKlines = []
+    for row in allKlines:
+        if row[0] not in seenTimes:
+            seenTimes.add(row[0])
+            uniqueKlines.append(row)
+    uniqueKlines.sort(key=lambda row: row[0])
+
     # Binance kline row layout: [openTime, open, high, low, close, volume, ...]
-    closes = [float(row[4]) for row in klines]
-    volumes = [float(row[5]) for row in klines]
-    timestamps = pd.to_datetime([row[0] for row in klines], unit="ms")
+    closes = [float(row[4]) for row in uniqueKlines]
+    volumes = [float(row[5]) for row in uniqueKlines]
+    timestamps = pd.to_datetime([row[0] for row in uniqueKlines], unit="ms")
     return pd.DataFrame({"close": closes, "volume": volumes}, index=timestamps)
+

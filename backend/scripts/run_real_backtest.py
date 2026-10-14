@@ -78,7 +78,12 @@ def evaluateAsset(assetConfig, logLines):
     totalBars = len(priceDf)
     calendarDays = (priceDf.index[-1] - priceDf.index[0]).days
 
-    logLines.append(f"Full Dataset Range : {fullStart} to {fullEnd} ({totalBars} bars, ~{calendarDays} calendar days)")
+    logLines.append(f"First Date         : {fullStart}")
+    logLines.append(f"Last Date          : {fullEnd}")
+    logLines.append(f"Bar Count          : {totalBars} bars (~{calendarDays} calendar days)")
+    if calendarDays < 1095:
+        logLines.append("HISTORY BELOW 3 YEARS")
+
 
     # 2. Extract technical features & labels
     featureFrame = feature_pipeline.buildFeatureFrame(priceDf)
