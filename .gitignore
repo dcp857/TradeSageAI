@@ -37,4 +37,6 @@ package-lock.json
 /check_*.py
 /fix_*.py
 /verify_*.py
+last_real_backtest.txt
+backend/scripts/last_real_backtest.txt
 
