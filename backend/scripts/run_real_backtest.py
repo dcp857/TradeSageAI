@@ -111,6 +111,8 @@ def evaluateAsset(assetConfig, logLines):
     logLines.append(f"Evaluation (30%)   : {evalRange} ({len(testFeatures)} bars)")
     logLines.append("-" * 78)
 
+    trainCounts = {c: int((trainLabels == c).sum()) for c in ["up", "down", "neutral"]}
+
     # 3. Model 1: Random Forest Baseline
     logLines.append("MODEL: Scikit-Learn Random Forest Baseline")
     rfModel = signal_engine.trainRandomForestBaseline(trainFeatures, trainLabels)
@@ -123,15 +125,18 @@ def evaluateAsset(assetConfig, logLines):
 
     rfSignalSeries = pd.Series(rfPredictions, index=testFeatures.index)
     rfMetrics = backtesting_service.runBacktest(priceSeries, rfSignalSeries, horizonDays=HORIZON_DAYS)
+    rfPredCounts = {c: int((rfSignalSeries == c).sum()) for c in ["up", "down", "neutral"]}
 
-    logLines.append(f"  Evaluation Window : {evalRange}")
-    logLines.append(f"  Total Trades      : {rfMetrics['totalTrades']}")
+    logLines.append(f"  Evaluation Window      : {evalRange}")
+    logLines.append(f"  Training Class Counts  : up={trainCounts['up']}, down={trainCounts['down']}, neutral={trainCounts['neutral']}")
+    logLines.append(f"  Predicted Class Counts : up={rfPredCounts['up']}, down={rfPredCounts['down']}, neutral={rfPredCounts['neutral']}")
+    logLines.append(f"  Total Trades           : {rfMetrics['totalTrades']}")
     if rfMetrics["totalTrades"] < 10:
-        logLines.append("  Result Status     : INSUFFICIENT TRADES, do not interpret")
+        logLines.append("  Result Status          : INSUFFICIENT TRADES, do not interpret")
     else:
-        logLines.append(f"  Sharpe Ratio      : {rfMetrics['sharpeRatio']:.2f}")
-        logLines.append(f"  Win Rate          : {rfMetrics['winRate'] * 100:.1f}%")
-        logLines.append(f"  Max Drawdown      : {rfMetrics['maxDrawdown'] * 100:.1f}%")
+        logLines.append(f"  Sharpe Ratio           : {rfMetrics['sharpeRatio']:.2f}")
+        logLines.append(f"  Win Rate               : {rfMetrics['winRate'] * 100:.1f}%")
+        logLines.append(f"  Max Drawdown           : {rfMetrics['maxDrawdown'] * 100:.1f}%")
     logLines.append("")
 
     # 4. Model 2: PyTorch Shallow LSTM (if torch available)
@@ -160,19 +165,23 @@ def evaluateAsset(assetConfig, logLines):
 
             lstmSignalSeries = pd.Series(lstmPredictions, index=testFeatures.index)
             lstmMetrics = backtesting_service.runBacktest(priceSeries, lstmSignalSeries, horizonDays=HORIZON_DAYS)
+            lstmPredCounts = {c: int((lstmSignalSeries == c).sum()) for c in ["up", "down", "neutral"]}
 
-            logLines.append(f"  Evaluation Window : {evalRange}")
-            logLines.append(f"  Total Trades      : {lstmMetrics['totalTrades']}")
+            logLines.append(f"  Evaluation Window      : {evalRange}")
+            logLines.append(f"  Training Class Counts  : up={trainCounts['up']}, down={trainCounts['down']}, neutral={trainCounts['neutral']}")
+            logLines.append(f"  Predicted Class Counts : up={lstmPredCounts['up']}, down={lstmPredCounts['down']}, neutral={lstmPredCounts['neutral']}")
+            logLines.append(f"  Total Trades           : {lstmMetrics['totalTrades']}")
             if lstmMetrics["totalTrades"] < 10:
-                logLines.append("  Result Status     : INSUFFICIENT TRADES, do not interpret")
+                logLines.append("  Result Status          : INSUFFICIENT TRADES, do not interpret")
             else:
-                logLines.append(f"  Sharpe Ratio      : {lstmMetrics['sharpeRatio']:.2f}")
-                logLines.append(f"  Win Rate          : {lstmMetrics['winRate'] * 100:.1f}%")
-                logLines.append(f"  Max Drawdown      : {lstmMetrics['maxDrawdown'] * 100:.1f}%")
+                logLines.append(f"  Sharpe Ratio           : {lstmMetrics['sharpeRatio']:.2f}")
+                logLines.append(f"  Win Rate               : {lstmMetrics['winRate'] * 100:.1f}%")
+                logLines.append(f"  Max Drawdown           : {lstmMetrics['maxDrawdown'] * 100:.1f}%")
         except Exception as lstmErr:
             logLines.append(f"  LSTM Execution Error: {lstmErr}")
     else:
         logLines.append("MODEL: PyTorch Shallow LSTM -> SKIPPED (PyTorch not installed in environment)")
+
 
     logLines.append("")
 
