@@ -91,6 +91,30 @@ def checkDataSourceHealth(dbSession, priceFetcher=None):
         sentimentSource = "newsapi" if asset.assetType == "stock" else "reddit"
         sentimentStatus = sentiment_service.getDataSourceStatus(sentimentSource)
 
+        modelHealthFlags = []
+        try:
+            from model_health import checkSingleClass
+            from models import Signal
+            for mUsed in ["random_forest", "lstm"]:
+                recentSig = (
+                    dbSession.query(Signal)
+                    .filter_by(assetSymbol=asset.assetSymbol, modelUsed=mUsed)
+                    .order_by(Signal.generatedAt.desc())
+                    .limit(60)
+                    .all()
+                )
+                if recentSig:
+                    preds = [s.predictedDirection for s in recentSig]
+                    h = checkSingleClass(preds, minSamples=20, threshold=0.95)
+                    if h["status"] == "single_class":
+                        modelHealthFlags.append(f"{mUsed}: single_class ({h['dominantClass']} {int(h['dominantShare']*100)}%)")
+                    else:
+                        modelHealthFlags.append(f"{mUsed}: {h['status']}")
+                else:
+                    modelHealthFlags.append(f"{mUsed}: no_signals")
+        except Exception:
+            pass
+
         results.append({
             "assetSymbol": asset.assetSymbol,
             "assetType": asset.assetType,
@@ -98,6 +122,8 @@ def checkDataSourceHealth(dbSession, priceFetcher=None):
             "status": status,
             "sentimentSource": sentimentSource,
             "sentimentStatus": sentimentStatus,
+            "modelHealthFlags": modelHealthFlags,
             "checkedAt": datetime.utcnow().isoformat(),
         })
     return results
+

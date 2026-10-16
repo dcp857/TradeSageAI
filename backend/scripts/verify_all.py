@@ -26,7 +26,9 @@ TEST_SCRIPTS = [
     ("smoke_test_phase3.py", "Watchlist, Feedback Loop & Admin Diagnostics"),
     ("smoke_test_routes.py", "HTTP Route Handlers & Backtest API"),
     ("smoke_test_sentiment.py", "Live Sentiment Engine, VADER & Security Check"),
+    ("smoke_test_model_health.py", "Model Health & Collapse Detection"),
 ]
+
 
 
 def checkTorchEnvironment():

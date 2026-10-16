@@ -28,6 +28,8 @@ import price_service
 import feature_pipeline
 import signal_engine
 import backtesting_service
+from model_health import checkSingleClass
+
 
 try:
     import torch
@@ -126,10 +128,14 @@ def evaluateAsset(assetConfig, logLines):
     rfSignalSeries = pd.Series(rfPredictions, index=testFeatures.index)
     rfMetrics = backtesting_service.runBacktest(priceSeries, rfSignalSeries, horizonDays=HORIZON_DAYS)
     rfPredCounts = {c: int((rfSignalSeries == c).sum()) for c in ["up", "down", "neutral"]}
+    rfHealth = checkSingleClass(rfPredictions)
+    rfDomShare = int(rfHealth["dominantShare"] * 100) if rfHealth["dominantClass"] else 0
+    rfDomClass = rfHealth["dominantClass"] or "none"
 
     logLines.append(f"  Evaluation Window      : {evalRange}")
     logLines.append(f"  Training Class Counts  : up={trainCounts['up']}, down={trainCounts['down']}, neutral={trainCounts['neutral']}")
     logLines.append(f"  Predicted Class Counts : up={rfPredCounts['up']}, down={rfPredCounts['down']}, neutral={rfPredCounts['neutral']}")
+    logLines.append(f"  Model health           : {rfHealth['status']} ({rfDomClass} {rfDomShare}%)")
     logLines.append(f"  Total Trades           : {rfMetrics['totalTrades']}")
     if rfMetrics["totalTrades"] < 10:
         logLines.append("  Result Status          : INSUFFICIENT TRADES, do not interpret")
@@ -166,11 +172,16 @@ def evaluateAsset(assetConfig, logLines):
             lstmSignalSeries = pd.Series(lstmPredictions, index=testFeatures.index)
             lstmMetrics = backtesting_service.runBacktest(priceSeries, lstmSignalSeries, horizonDays=HORIZON_DAYS)
             lstmPredCounts = {c: int((lstmSignalSeries == c).sum()) for c in ["up", "down", "neutral"]}
+            lstmHealth = checkSingleClass(lstmPredictions)
+            lstmDomShare = int(lstmHealth["dominantShare"] * 100) if lstmHealth["dominantClass"] else 0
+            lstmDomClass = lstmHealth["dominantClass"] or "none"
 
             logLines.append(f"  Evaluation Window      : {evalRange}")
             logLines.append(f"  Training Class Counts  : up={trainCounts['up']}, down={trainCounts['down']}, neutral={trainCounts['neutral']}")
             logLines.append(f"  Predicted Class Counts : up={lstmPredCounts['up']}, down={lstmPredCounts['down']}, neutral={lstmPredCounts['neutral']}")
+            logLines.append(f"  Model health           : {lstmHealth['status']} ({lstmDomClass} {lstmDomShare}%)")
             logLines.append(f"  Total Trades           : {lstmMetrics['totalTrades']}")
+
             if lstmMetrics["totalTrades"] < 10:
                 logLines.append("  Result Status          : INSUFFICIENT TRADES, do not interpret")
             else:

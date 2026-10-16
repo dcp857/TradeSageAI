@@ -61,6 +61,8 @@ from lstm_model import WINDOW_SIZE_DEFAULT, buildSequenceWindows, trainLstm, pre
 from models import db, User, Signal, BacktestResult, MODEL_BASELINE, MODEL_LSTM
 from signal_engine import trainRandomForestBaseline, predictDirection as predictRfDirection
 from signal_service import generateSignal
+from model_health import checkSingleClass
+
 
 ALLOWED_DASHBOARD_ORIGIN_DEFAULT = "http://localhost:5500"  # plain HTML/CSS/JS dev server
 CLASS_NAMES = ["down", "neutral", "up"]
@@ -426,6 +428,28 @@ def create_app(configOverrides=None):
             "status": status,
         }
 
+        # Task 2b: Evaluate model collapse health on recent predictions (last 60 rows/windows)
+        featureFrame = buildFeatureFrame(priceDf)
+        rfRecentRows = featureFrame.tail(60)
+        rfRecentPreds = [
+            predictRfDirection(rfModel, rfRecentRows.iloc[i].values)["direction"]
+            for i in range(len(rfRecentRows))
+        ]
+        rfHealth = checkSingleClass(rfRecentPreds, minSamples=20, threshold=0.95)
+
+        if lstmModel is not None:
+            numWindows = min(60, max(0, len(featureFrame) - WINDOW_SIZE_DEFAULT + 1))
+            startIdx = len(featureFrame) - numWindows
+            lstmRecentPreds = []
+            for i in range(startIdx, len(featureFrame)):
+                seq = featureFrame.iloc[i - WINDOW_SIZE_DEFAULT + 1 : i + 1].values
+                if len(seq) == WINDOW_SIZE_DEFAULT:
+                    pred = predictLstmDirection(lstmModel, seq, CLASS_NAMES)
+                    lstmRecentPreds.append(pred["direction"])
+            lstmHealth = checkSingleClass(lstmRecentPreds, minSamples=20, threshold=0.95)
+        else:
+            lstmHealth = {"status": "insufficient_data", "dominantClass": None, "dominantShare": 0.0, "sampleSize": 0}
+
         return jsonify({
             "assetSymbol": assetSymbol,
             "assetType": assetType,
@@ -437,10 +461,12 @@ def create_app(configOverrides=None):
                     "confidenceScore": row.confidenceScore,
                     "topContributingFeatures": json.loads(row.topContributingFeatures),
                     "horizonDays": row.horizonDays,
+                    "modelHealth": rfHealth if row.modelUsed == MODEL_BASELINE else lstmHealth,
                 }
                 for row in signalRows
             ],
         })
+
 
     @app.route("/api/backtest", methods=["POST"])
     @login_required

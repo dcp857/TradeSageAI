@@ -1333,12 +1333,20 @@ const Signals = {
           </div>`;
       }).join("");
 
+      const isSingleClass = s.modelHealth && s.modelHealth.status === "single_class";
+      const singleClassBadge = isSingleClass ? `
+        <div class="model-collapse-warning" style="margin: 8px 0; padding: 8px 10px; background: rgba(255, 170, 0, 0.12); border: 1px solid rgba(255, 170, 0, 0.35); border-radius: var(--radius-sm); color: #ffaa00; font-size: 11px; line-height: 1.4; display: flex; align-items: flex-start; gap: 6px;">
+          <span style="font-size: 13px; line-height: 1;">⚠️</span>
+          <span>This model has recently predicted one direction almost always (${Math.round((s.modelHealth.dominantShare || 0) * 100)}% '${s.modelHealth.dominantClass}'). Treat its signal as unreliable.</span>
+        </div>` : "";
+
       return `
         <div class="matrix-cell">
           <div class="matrix-head">
             <span class="model-title">${modelName}</span>
             <span class="model-spec mono">${s.horizonDays}D Horizon</span>
           </div>
+          ${singleClassBadge}
           <div class="signal-callout">
             <div>
               <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">Directional Bias</div>
@@ -1355,6 +1363,7 @@ const Signals = {
           </div>
         </div>`;
     }).join("");
+
 
     // Inject everything: verdict card + collapsible tech wrapper
     container.innerHTML = `
@@ -2395,13 +2404,20 @@ const Admin = {
                 Feed: <strong style="color: var(--text-muted);">${providerLabel}</strong>
                 ${h.sentimentSource ? ` | Sentiment: <strong style="color: var(--text-muted);">${h.sentimentSource === "newsapi" ? "NewsAPI" : "Reddit/PRAW"}</strong> (${h.sentimentStatus === "ok" ? '<span style="color: #00d68f; font-weight: 600;">ACTIVE</span>' : `<span style="color: #ffaa00; font-weight: 600;">${h.sentimentStatus}</span>`})` : ''}
               </div>
+              ${h.modelHealthFlags && h.modelHealthFlags.length > 0 ? `
+                <div style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">
+                  Model Health: ${h.modelHealthFlags.map(f => f.includes('single_class') ? `<strong style="color: #ffaa00;">⚠️ ${f}</strong>` : `<span style="color: var(--text-muted);">${f}</span>`).join(' · ')}
+                </div>
+              ` : ''}
             </div>
+          </div>
           <div style="text-align: right;">
             <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; letter-spacing: 0.3px;">
               ${statusLabel}
             </span>
           </div>
         </div>
+
       `;
     }).join("");
 
