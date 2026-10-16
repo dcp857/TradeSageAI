@@ -75,9 +75,13 @@ CLASS_NAMES = ["down", "neutral", "up"]
 # Fix #3: capped at MAX_MODEL_CACHE_SIZE entries. When the limit is reached
 # the oldest-inserted key is evicted first. Without this, a long-running
 # deployment tracking many assets accumulates large RF+LSTM objects in RAM
-# indefinitely (each entry is ~10–50 MB depending on training set size).
+# Model feature set version. Incremented to 2 when removing inert sentiment
+# from model feature frame (technical features only: sma, rsi, macd, volumeChange).
+# In-memory and persisted caches keyed by this version cleanly invalidate old shapes.
+MODEL_FEATURE_VERSION = 2
 MAX_MODEL_CACHE_SIZE = 50
 G_ModelCache = {}
+
 
 POPULAR_ASSETS = [
     {"symbol": "AAPL", "name": "Apple Inc.", "type": "stock"},
@@ -392,11 +396,10 @@ def create_app(configOverrides=None):
         )
 
         rfModel, rfBackground, lstmModel, lstmBackground, featureNames = \
-            _getOrTrainModels(assetSymbol, priceDf, sentimentScore)
+            _getOrTrainModels(assetSymbol, priceDf)
 
         signalRows = generateSignal(
             db.session, current_user.userId, assetSymbol, assetType, priceDf,
-            sentimentScore=sentimentScore,
             rfModel=rfModel, rfBackground=rfBackground,
             lstmModel=lstmModel, lstmBackground=lstmBackground,
             featureNames=featureNames,
@@ -406,9 +409,27 @@ def create_app(configOverrides=None):
         # in hand — avoids a second fetch just to run this check.
         watchlist_service.resolveSignalOutcomes(db.session, assetSymbol, priceDf)
 
+        status = sentiment_service.getDataSourceStatus("reddit" if assetType.lower() == "crypto" else "newsapi")
+        # Thresholds: ±0.15 chosen because compound VADER scores within (-0.15, 0.15)
+        # reflect mild/neutral daily baseline noise, while scores >= 0.15 or <= -0.15
+        # denote distinct positive or negative sentiment tone with statistical confidence.
+        if sentimentScore >= 0.15:
+            moodLabel = "positive"
+        elif sentimentScore <= -0.15:
+            moodLabel = "negative"
+        else:
+            moodLabel = "neutral"
+
+        newsMood = {
+            "score": round(float(sentimentScore), 4),
+            "label": moodLabel,
+            "status": status,
+        }
+
         return jsonify({
             "assetSymbol": assetSymbol,
             "assetType": assetType,
+            "newsMood": newsMood,
             "signals": [
                 {
                     "modelUsed": row.modelUsed,
@@ -465,11 +486,11 @@ def create_app(configOverrides=None):
                 rangeEnd = date.today()
             else:
                 # Walk-forward historical replay: simulate model predictions over historical windows
-                rfModel, _, lstmModel, _, _ = _getOrTrainModels(assetSymbol, priceDf, sentimentScore=0.0)
+                rfModel, _, lstmModel, _, _ = _getOrTrainModels(assetSymbol, priceDf)
                 featureFrame = buildFeatureFrame(priceDf)
-                featureFrame["sentiment"] = 0.0
 
                 testWindow = min(60, len(featureFrame) - WINDOW_SIZE_DEFAULT - 1)
+
                 if testWindow < 5:
                     testWindow = max(5, len(featureFrame) // 3)
 
@@ -673,17 +694,21 @@ def create_app(configOverrides=None):
     return app
 
 
-def _getOrTrainModels(assetSymbol, priceDf, sentimentScore):
-    """Train RF+LSTM on demand and cache per (asset, day) — see G_ModelCache
-    comment above for why per-day retraining (not per-request) is the right
-    tradeoff here rather than a more elaborate persisted model store.
+def _getOrTrainModels(assetSymbol, priceDf, sentimentScore=None):
+    """Train RF+LSTM on demand and cache per (MODEL_FEATURE_VERSION, asset, day).
+    Models use technical features only (sma, rsi, macd, volumeChange) — sentiment
+    is decoupled as a separate newsMood context indicator per Task 1.
 
     Fix #3: evict the oldest entry when MAX_MODEL_CACHE_SIZE is reached so
     the dict never grows without bound across a long-running session.
     """
-    cacheKey = (assetSymbol, date.today().isoformat())
+    cacheKey = (MODEL_FEATURE_VERSION, assetSymbol, date.today().isoformat())
     if cacheKey in G_ModelCache:
-        return G_ModelCache[cacheKey]
+        cached = G_ModelCache[cacheKey]
+        # Invalidate if stale or legacy shape (must have 4 features and no 'sentiment')
+        if len(cached[4]) == 4 and "sentiment" not in cached[4]:
+            return cached
+        del G_ModelCache[cacheKey]
 
     # Evict oldest-inserted entry when cap is reached (dict preserves
     # insertion order in Python 3.7+, so next(iter(...)) is the oldest key).
@@ -693,14 +718,12 @@ def _getOrTrainModels(assetSymbol, priceDf, sentimentScore):
 
     featureFrame = buildFeatureFrame(priceDf)
     labels = labelDirection(priceDf["close"])
-    featureFrameWithSentiment = featureFrame.copy()
-    featureFrameWithSentiment["sentiment"] = sentimentScore
-    featureNames = list(featureFrameWithSentiment.columns)
+    featureNames = list(featureFrame.columns)
 
-    rfModel = trainRandomForestBaseline(featureFrameWithSentiment, labels)
-    rfBackground = featureFrameWithSentiment.tail(80).values[:60]
+    rfModel = trainRandomForestBaseline(featureFrame, labels)
+    rfBackground = featureFrame.tail(80).values[:60]
 
-    sequences, seqLabels = buildSequenceWindows(featureFrameWithSentiment, labels, WINDOW_SIZE_DEFAULT)
+    sequences, seqLabels = buildSequenceWindows(featureFrame, labels, WINDOW_SIZE_DEFAULT)
     lstmModel = None
     lstmBackground = None
     if len(sequences) > 0:
@@ -710,6 +733,7 @@ def _getOrTrainModels(assetSymbol, priceDf, sentimentScore):
     result = (rfModel, rfBackground, lstmModel, lstmBackground, featureNames)
     G_ModelCache[cacheKey] = result
     return result
+
 
 
 if __name__ == "__main__":

@@ -40,19 +40,18 @@ def runRetrainTask(app, getOrTrainFunc, modelCache):
         if not tracked:
             return {"status": "skipped", "reason": "no_tracked_assets"}
 
+        from app import MODEL_FEATURE_VERSION
         retrainedSymbols = []
         for asset in tracked:
             try:
-                cacheKey = (asset.assetSymbol, date.today().isoformat())
+                cacheKey = (MODEL_FEATURE_VERSION, asset.assetSymbol, date.today().isoformat())
                 if cacheKey in modelCache:
                     del modelCache[cacheKey]
 
                 priceDf = price_service.getHistoricalPrices(asset.assetSymbol, asset.assetType)
-                sentimentScore = sentiment_service.getSentimentForAsset(
-                    asset.assetSymbol, asset.assetType, date.today(), db.session
-                )
-                getOrTrainFunc(asset.assetSymbol, priceDf, sentimentScore)
+                getOrTrainFunc(asset.assetSymbol, priceDf)
                 retrainedSymbols.append(asset.assetSymbol)
+
                 logger.info("Scheduler retrained %s successfully.", asset.assetSymbol)
             except Exception as exc:
                 # Fix #4: log the full traceback so failures are diagnosable

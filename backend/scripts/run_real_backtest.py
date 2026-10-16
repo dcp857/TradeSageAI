@@ -87,8 +87,8 @@ def evaluateAsset(assetConfig, logLines):
 
     # 2. Extract technical features & labels
     featureFrame = feature_pipeline.buildFeatureFrame(priceDf)
-    featureFrame["sentiment"] = 0.0  # neutral sentiment baseline over historical horizon
     labels = feature_pipeline.labelDirection(priceDf["close"], horizonDays=HORIZON_DAYS, neutralBandPct=NEUTRAL_BAND_PCT)
+
 
     # Align indexes
     commonIdx = featureFrame.index.intersection(labels.index)

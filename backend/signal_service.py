@@ -47,11 +47,12 @@ CLASS_NAMES = ["down", "neutral", "up"]  # fixed order shared by both models' ex
 
 
 def generateSignal(dbSession, userId, assetSymbol, assetType, priceDf,
-                    sentimentScore, rfModel, rfBackground, lstmModel,
-                    lstmBackground, featureNames, horizonDays=3):
+                    sentimentScore=None, rfModel=None, rfBackground=None,
+                    lstmModel=None, lstmBackground=None, featureNames=None,
+                    horizonDays=3):
     featureFrame = buildFeatureFrame(priceDf)
-    featureFrame["sentiment"] = sentimentScore  # FR-3.2: sentiment joins the technical features
     allFeatureNames = list(featureFrame.columns)
+
 
     latestFeatureRow = featureFrame.iloc[-1].values
     latestSequence = featureFrame.tail(WINDOW_SIZE_DEFAULT).values

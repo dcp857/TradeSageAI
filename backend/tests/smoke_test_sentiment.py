@@ -135,7 +135,7 @@ with app.app_context():
     print("PASS: Security check passed — no API secrets exist in any tracked git files")
 
     # -------------------------------------------------------------
-    # 6. Requirement e: Live Signal integration with sentiment feature
+    # 6. Task 1e: Decoupled News Mood & 4-Feature Models
     # -------------------------------------------------------------
     np.random.seed(42)
     dates = pd.bdate_range("2025-01-01", periods=250)
@@ -145,32 +145,71 @@ with app.app_context():
 
     featureFrame = buildFeatureFrame(priceDf)
     labels = labelDirection(priceDf["close"])
-    featureFrameWithSentiment = featureFrame.copy()
-    featureFrameWithSentiment["sentiment"] = positiveScore
 
-    rfModel = trainRandomForestBaseline(featureFrameWithSentiment, labels)
-    sequences, seqLabels = buildSequenceWindows(featureFrameWithSentiment, labels, WINDOW_SIZE_DEFAULT)
+    # Assertion: feature frame uses 4 technical features, 'sentiment' does NOT appear
+    assert featureFrame.shape[1] == 4, f"Expected 4 features, got {featureFrame.shape[1]}"
+    assert set(featureFrame.columns) == {"rsi", "macd", "sma", "volumeChange"}
+    assert "sentiment" not in featureFrame.columns
+
+    rfModel = trainRandomForestBaseline(featureFrame, labels)
+    sequences, seqLabels = buildSequenceWindows(featureFrame, labels, WINDOW_SIZE_DEFAULT)
+    assert sequences.shape[2] == 4, f"Expected sequence shape with 4 features, got {sequences.shape[2]}"
+
     lstmModel = trainLstm(sequences, seqLabels, classNames=["down", "neutral", "up"], epochs=2)
 
-    rfBackground = featureFrameWithSentiment.tail(80).values[:60]
+    rfBackground = featureFrame.tail(80).values[:60]
     lstmBackground = sequences[-30:]
 
     signalRows = generateSignal(
         db.session, user.userId, "AAPL", "stock", priceDf,
-        sentimentScore=positiveScore,
         rfModel=rfModel, rfBackground=rfBackground,
         lstmModel=lstmModel, lstmBackground=lstmBackground,
         featureNames=list(featureFrame.columns),
     )
 
-    print("\n--- REQUIREMENT (e): Signal Output with Non-Neutral Sentiment Feature ---")
-    print(f"Injected Positive Sentiment Score: {positiveScore:.4f}")
+    print("\n--- TASK 1e VERIFICATION: Technical-Only Models + newsMood Decoupling ---")
     assert len(signalRows) == 2, "Expected 2 signal rows (RF baseline + LSTM)"
     for row in signalRows:
         explanation = json.loads(row.topContributingFeatures)
         print(f"Model: {row.modelUsed:<15} | Predicted: {row.predictedDirection:<7} | Confidence: {row.confidenceScore:.3f}")
         print(f"  Top SHAP Contributing Features: {explanation}")
         sentimentInFeatures = any(f.get("feature") == "sentiment" for f in explanation)
-        print(f"  -> 'sentiment' feature represented in SHAP breakdown: {sentimentInFeatures}")
+        assert not sentimentInFeatures, f"'sentiment' unexpectedly found in SHAP explanation for {row.modelUsed}"
+        print(f"  -> 'sentiment' absent from SHAP breakdown: True")
+
+    # Verify /api/signal returns newsMood with valid label and degraded status when keys unset
+    from app import create_app
+    testApp = create_app({"SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:", "TESTING": True})
+    with testApp.app_context():
+        db.create_all()
+        tUser = auth_service.registerUser(db.session, "api_tester@example.com", "SecurePass123!")
+        client = testApp.test_client()
+        loginResp = client.post("/api/login", json={"email": "api_tester@example.com", "password": "SecurePass123!"})
+        assert loginResp.status_code == 200
+
+        # Inject fake price to avoid external network during unit smoke test
+        import price_service
+        origGetPrices = price_service.getHistoricalPrices
+        price_service.getHistoricalPrices = lambda *a, **k: priceDf.copy()
+        try:
+            sigResp = client.get("/api/signal?assetSymbol=AAPL&assetType=stock")
+            assert sigResp.status_code == 200, sigResp.get_data(as_text=True)
+            sigJson = sigResp.get_json()
+
+            assert "newsMood" in sigJson, "newsMood field missing from /api/signal"
+            mood = sigJson["newsMood"]
+            assert -1.0 <= mood["score"] <= 1.0, f"Mood score out of bounds: {mood['score']}"
+            assert mood["label"] in {"positive", "neutral", "negative"}, f"Invalid mood label: {mood['label']}"
+            assert mood["status"].startswith("degraded"), f"Expected degraded status without API key, got: {mood['status']}"
+            print(f"PASS: /api/signal returns newsMood: {mood}")
+
+            # Verify no model signal contains 'sentiment' in features
+            for sig in sigJson["signals"]:
+                featNames = [f.get("feature") for f in sig.get("topContributingFeatures", [])]
+                assert "sentiment" not in featNames, f"'sentiment' found in API signal features: {featNames}"
+            print("PASS: Verified 'sentiment' is absent from all API signal explanations")
+        finally:
+            price_service.getHistoricalPrices = origGetPrices
 
 print("\nALL SENTIMENT SMOKE TESTS PASSED")
+

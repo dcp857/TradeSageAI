@@ -1079,7 +1079,7 @@ const Signals = {
     }
 
     Toast.show(`Signals ready for ${symbol}`, "success");
-    this.renderMatrix(data.signals, symbol);
+    this.renderMatrix(data.signals, symbol, data.newsMood);
     Watchlist.load();
   },
 
@@ -1099,14 +1099,12 @@ const Signals = {
       volumeChange: pos
         ? "Trading volume has increased, confirming that buyers are actively participating."
         : "Trading volume has dropped off, suggesting weaker conviction in recent price moves.",
-      sentiment: pos
-        ? "Recent news and social media sentiment about this asset is mostly positive."
-        : "Recent news and social media sentiment about this asset is mostly negative.",
     };
     return map[featureName] || (pos
       ? `The ${featureName} factor is pushing the signal in a favourable direction.`
       : `The ${featureName} factor is pushing the signal in an unfavourable direction.`);
   },
+
 
   // ---- Compute single consensus verdict from all signals ----
   _computeVerdict(signals) {
@@ -1173,7 +1171,7 @@ const Signals = {
       : "▾ Hide Technical Details";
   },
 
-  renderMatrix(signals, symbol) {
+  renderMatrix(signals, symbol, newsMood) {
     const container = document.getElementById("modelsMatrix");
     const divAlert  = document.getElementById("divergenceAlert");
     // Always hide the old divergence bar — verdict card replaces it
@@ -1190,6 +1188,24 @@ const Signals = {
     const vDir       = verdict.direction; // up | down | neutral | uncertain
     const summaryText = this._buildSummaryText(verdict, symbol, horizonDays);
     const avgConfPct  = Math.round(verdict.avgConfidence * 100);
+
+    // --- News mood context indicator (Task 1d: context only, not used by models) ---
+    let newsMoodHtml = "";
+    if (newsMood) {
+      const isDegraded = (newsMood.status || "").startsWith("degraded");
+      const label = (newsMood.label || "neutral").toUpperCase();
+      const scoreVal = Number(newsMood.score) || 0;
+      const scoreStr = (scoreVal >= 0 ? "+" : "") + scoreVal.toFixed(2);
+      const moodClass = isDegraded ? "degraded" : (newsMood.label || "neutral").toLowerCase();
+      const chipText = isDegraded
+        ? "News mood unavailable"
+        : `News mood: ${label} (${scoreStr})`;
+      newsMoodHtml = `
+        <div class="news-mood-block">
+          <span class="news-mood-chip chip-${moodClass}">${chipText}</span>
+          <span class="news-mood-caption">Shown for context only. Not used by the models.</span>
+        </div>`;
+    }
 
     // --- Model agreement chips ---
     const modelChips = signals.map(s => {
@@ -1242,6 +1258,7 @@ const Signals = {
           <div>
             <div class="verdict-asset-label">AI Signal Analysis</div>
             <div class="verdict-asset-name">${symbol}</div>
+            ${newsMoodHtml}
           </div>
           <div class="verdict-pill">
             <div class="verdict-pill-label">Overall Verdict</div>
@@ -1253,6 +1270,7 @@ const Signals = {
             }</div>
           </div>
         </div>
+
 
         <!-- Plain-English summary -->
         <div class="verdict-summary-text">${summaryText} ${actionText}</div>

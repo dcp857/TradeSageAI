@@ -1832,6 +1832,58 @@ tr.holding-expand-row td {
 .verdict-badge.neutral { color: var(--fin-neutral); background: var(--fin-neutral-bg); border: 1px solid var(--fin-neutral-border); }
 .verdict-badge.uncertain { color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border-active); }
 
+/* News Mood indicator (contextual indicator, decoupled from model features) */
+.news-mood-block {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+.news-mood-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.news-mood-chip.chip-positive {
+  color: var(--fin-up);
+  background: var(--fin-up-bg);
+  border: 1px solid var(--fin-up-border);
+}
+
+.news-mood-chip.chip-negative {
+  color: var(--fin-down);
+  background: var(--fin-down-bg);
+  border: 1px solid var(--fin-down-border);
+}
+
+.news-mood-chip.chip-neutral {
+  color: var(--fin-neutral);
+  background: var(--fin-neutral-bg);
+  border: 1px solid var(--fin-neutral-border);
+}
+
+.news-mood-chip.chip-degraded {
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+}
+
+.news-mood-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+
 /* Plain-English summary sentence */
 .verdict-summary-text {
   font-size: 14px;

@@ -79,23 +79,23 @@ with app.app_context():
     print("Feature frame shape:", featureFrame.shape)
     assert set(featureFrame.columns) == {"rsi", "macd", "sma", "volumeChange"}
 
-    # --- train both models (both trained on technical + sentiment features, per FR-3.2) ---
-    ffWithSentiment = featureFrame.copy()
-    ffWithSentiment["sentiment"] = 0.1
-    rfModel = trainRandomForestBaseline(ffWithSentiment, labels)
+    # --- train both models (technical features only per Task 1) ---
+    assert set(featureFrame.columns) == {"rsi", "macd", "sma", "volumeChange"}
+    assert len(featureFrame.columns) == 4
+    rfModel = trainRandomForestBaseline(featureFrame, labels)
     print("RF trained, classes:", rfModel.classes_)
 
-    sequences, seqLabels = buildSequenceWindows(ffWithSentiment, labels, WINDOW_SIZE_DEFAULT)
+    sequences, seqLabels = buildSequenceWindows(featureFrame, labels, WINDOW_SIZE_DEFAULT)
     print("LSTM sequences:", sequences.shape, "labels:", seqLabels.shape)
+    assert sequences.shape[2] == 4, f"Expected 4 features, got {sequences.shape[2]}"
     lstmModel = trainLstm(sequences, seqLabels, classNames=["down", "neutral", "up"], epochs=3)
     print("LSTM trained OK")
 
     # --- full orchestrated signal generation (RF + LSTM + SHAP, persisted) ---
-    rfBackground = ffWithSentiment.tail(80).values[:60]
+    rfBackground = featureFrame.tail(80).values[:60]
     lstmBackground = sequences[-30:]
     rows = generateSignal(
         db.session, user.userId, "AAPL", "stock", priceDf,
-        sentimentScore=0.1,
         rfModel=rfModel, rfBackground=rfBackground,
         lstmModel=lstmModel, lstmBackground=lstmBackground,
         featureNames=list(featureFrame.columns),
@@ -108,6 +108,11 @@ with app.app_context():
         import json
         explanation = json.loads(r.topContributingFeatures)
         print(f"  {r.modelUsed}: direction={r.predictedDirection} conf={r.confidenceScore:.3f} top={explanation[:2]}")
+        featuresInExpl = [f.get("feature") for f in explanation]
+        assert "sentiment" not in featuresInExpl, f"'sentiment' found in feature attribution: {featuresInExpl}"
         assert len(explanation) > 0
 
+    print("PASS: smoke_test_full verified (4 features, no sentiment in model features)")
+
 print("\nFULL PIPELINE SMOKE TEST PASSED")
+
