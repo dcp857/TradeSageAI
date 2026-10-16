@@ -3,7 +3,8 @@
 PRE-DECLARED EXPERIMENTAL PROTOCOL (Locked before execution):
 - Assets            : BTC (crypto) and AAPL (stock)
 - Data Frequency    : Daily close & volume
-- Minimum History   : At least 3 years (>= 1,095 calendar days; lookback = 1,150)
+- Minimum History   : At least 3 years (>= 1,095 calendar days; stocks use a 1,150-bar lookback; crypto is fetched via Binance pagination to at least 1,500 daily bars)
+
 - Train/Test Split  : Earlier 70% history for training, later 30% for walk-forward evaluation
 - Trade Horizon     : 3 days (holding period per FR-3.3)
 - Neutral Band      : 0.5% (0.005 forward return threshold for noise filtering)
@@ -203,7 +204,9 @@ def main():
     logLines.append("TRADESAGE AI - REAL-MARKET WALK-FORWARD BACKTEST EVIDENCE")
     logLines.append(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     logLines.append("=" * 78)
-    logLines.append("Pre-declared parameters: 70/30 split, horizon=3d, neutral_band=0.5%, lookback=1150d")
+    logLines.append("Pre-declared parameters: 70/30 split, horizon=3d, neutral_band=0.5%; "
+                    "stocks use a 1,150-bar lookback; crypto is fetched via Binance pagination to at least 1,500 daily bars")
+
     logLines.append("")
 
     for asset in PRE_DECLARED_ASSETS:
